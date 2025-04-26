@@ -3,8 +3,8 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { spawn } = require('child_process');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,7 +15,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Store client IDs and their WebSocket connections
 const clients = new Map();
-const dashManifests = new Map();
+const hlsPlaylists = new Map();
 
 wss.on('connection', (ws) => {
   const clientId = uuidv4();
@@ -39,8 +39,8 @@ wss.on('connection', (ws) => {
           if (id !== clientId && clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(JSON.stringify({ type: 'peer', peerId: clientId }));
             ws.send(JSON.stringify({ type: 'peer', peerId: id }));
-            if (dashManifests.has(id)) {
-              ws.send(JSON.stringify({ type: 'dashManifest', peerId: id, manifest: dashManifests.get(id) }));
+            if (hlsPlaylists.has(id)) {
+              ws.send(JSON.stringify({ type: 'hlsPlaylist', peerId: id, playlist: hlsPlaylists.get(id) }));
             }
           }
         });
@@ -53,13 +53,13 @@ wss.on('connection', (ws) => {
   ws.on('close', async () => {
     console.log(`Client ${clientId} disconnected`);
     clients.delete(clientId);
-    dashManifests.delete(clientId);
-    const dashDir = path.join(__dirname, 'public', 'dash', `client-${clientId}`);
+    hlsPlaylists.delete(clientId);
+    const hlsDir = path.join(__dirname, 'public', 'hls', `client-${clientId}`);
     try {
-      await fs.rm(dashDir, { recursive: true, force: true });
-      console.log(`Deleted DASH directory for ${clientId}`);
+      await fs.rm(hlsDir, { recursive: true, force: true });
+      console.log(`Deleted HLS directory for ${clientId}`);
     } catch (err) {
-      console.error(`Error deleting DASH directory for ${clientId}:`, err);
+      console.error(`Error deleting HLS directory for ${clientId}:`, err);
     }
     clients.forEach((clientWs, id) => {
       if (clientWs.readyState === WebSocket.OPEN) {
@@ -73,56 +73,38 @@ wss.on('connection', (ws) => {
 app.post('/upload-video/:clientId', async (req, res) => {
   const clientId = req.params.clientId;
   console.log(`Receiving video stream from ${clientId}`);
-  const dashDir = path.join(__dirname, 'public', 'dash', `client-${clientId}`);
-  await fs.mkdir(dashDir, { recursive: true });
-  const manifestPath = path.join(dashDir, 'output.mpd');
+  const hlsDir = path.join(__dirname, 'public', 'hls', `client-${clientId}`);
+  await fs.mkdir(hlsDir, { recursive: true });
+  const chunkIndex = hlsPlaylists.has(clientId) ? hlsPlaylists.get(clientId).chunkCount : 0;
+  const chunkFile = path.join(hlsDir, `chunk-${chunkIndex}.webm`);
+  const playlistFile = path.join(hlsDir, 'playlist.m3u8');
 
-  const gstreamer = spawn('gst-launch-1.0', [
-    'fdsrc', // Read from stdin
-    '!', 'queue', // Buffer input
-    '!', 'webmdec', // Decode WebM
-    '!', 'x264enc', 'tune=zerolatency', // H.264 encoding
-    '!', 'mpegtsmux', // Mux to MPEG-TS
-    '!', 'dashsink', `location=${dashDir}/output_%d.m4s`, `manifest-location=${manifestPath}`
-  ]);
+  const writeStream = fsSync.createWriteStream(chunkFile);
+  req.pipe(writeStream);
 
-  let isManifestCreated = false;
-  let gstreamerError = '';
-  const checkManifest = async () => {
+  writeStream.on('finish', async () => {
     try {
-      await fs.access(manifestPath);
-      isManifestCreated = true;
-      console.log(`DASH manifest created for ${clientId}: ${manifestPath}`);
-      const manifestRelativePath = `dash/client-${clientId}/output.mpd`;
-      dashManifests.set(clientId, manifestRelativePath);
+      // Update playlist
+      let playlist = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:0\n';
+      const chunkCount = chunkIndex + 1;
+      for (let i = Math.max(0, chunkCount - 5); i < chunkCount; i++) {
+        playlist += `#EXTINF:5.0,\nchunk-${i}.webm\n`;
+      }
+      await fs.writeFile(playlistFile, playlist);
+
+      const playlistUrl = `hls/client-${clientId}/playlist.m3u8`;
+      hlsPlaylists.set(clientId, { url: playlistUrl, chunkCount });
+      console.log(`HLS playlist updated for ${clientId}: ${playlistUrl}`);
       clients.forEach((clientWs, id) => {
         if (id !== clientId && clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(JSON.stringify({ type: 'dashManifest', peerId: clientId, manifest: manifestRelativePath }));
+          clientWs.send(JSON.stringify({ type: 'hlsPlaylist', peerId: clientId, playlist: playlistUrl }));
         }
       });
-    } catch (err) {
-      // Manifest not yet created
-    }
-  };
 
-  const manifestCheckInterval = setInterval(checkManifest, 1000);
-
-  req.pipe(gstreamer.stdin);
-
-  gstreamer.stderr.on('data', (data) => {
-    gstreamerError += data.toString();
-    console.log(`GStreamer output for ${clientId}: ${data.toString()}`);
-  });
-
-  gstreamer.on('close', (code) => {
-    clearInterval(manifestCheckInterval);
-    console.log(`GStreamer process for ${clientId} closed with code ${code}`);
-    if (code !== 0) {
-      console.error(`GStreamer error details for ${clientId}:`, gstreamerError);
-    }
-    res.status(code === 0 ? 200 : 500).send(code === 0 ? 'Success' : `GStreamer error: ${gstreamerError}`);
-    if (!isManifestCreated) {
-      console.error(`GStreamer failed to create manifest for ${clientId}`);
+      res.status(200).send('Success');
+    } catch (error) {
+      console.error(`HLS error for ${clientId}:`, error);
+      res.status(500).send(`HLS error: ${error.message}`);
     }
   });
 

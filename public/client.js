@@ -16,9 +16,8 @@ let clientId = null;
 let peerId = null;
 let isNegotiating = false;
 let isWebRTCSupported = !!(navigator.mediaDevices && window.RTCPeerConnection);
-let remoteDashManifest = null;
-let shakaPlayer = null;
-let videoRecorder = null;
+let remoteHlsPlaylist = null;
+let hls = null;
 
 // Initialize WebSocket
 function initWebSocket() {
@@ -69,11 +68,11 @@ function initWebSocket() {
         } catch (error) {
           console.error('[DEBUG] Error adding ICE candidate:', error);
         }
-      } else if (message.type === 'dashManifest' && message.peerId === peerId) {
-        remoteDashManifest = message.manifest;
-        console.log(`[DEBUG] Received DASH manifest: ${remoteDashManifest}`);
+      } else if (message.type === 'hlsPlaylist' && message.peerId === peerId) {
+        remoteHlsPlaylist = message.playlist;
+        console.log(`[DEBUG] Received HLS playlist: ${remoteHlsPlaylist}`);
         if (!isWebRTCSupported || peerConnection?.connectionState === 'failed') {
-          initDashPlayer(remoteDashManifest);
+          initHlsPlayer(remoteHlsPlaylist);
         }
       }
     } catch (error) {
@@ -115,9 +114,9 @@ function createPeerConnection() {
   peerConnection.onconnectionstatechange = () => {
     console.log(`[DEBUG] Peer connection state: ${peerConnection.connectionState}`);
     if (peerConnection.connectionState === 'failed') {
-      statusDiv.textContent = 'WebRTC connection failed. Falling back to DASH.';
+      statusDiv.textContent = 'WebRTC connection failed. Falling back to HLS.';
       stopCall();
-      if (remoteDashManifest) initDashPlayer(remoteDashManifest);
+      if (remoteHlsPlaylist) initHlsPlayer(remoteHlsPlaylist);
     }
   };
 
@@ -139,7 +138,7 @@ async function startCall() {
   if (!peerId) {
     statusDiv.textContent = 'Waiting for peer to join...';
     for (let i = 0; i < 20; i++) {
-      if (peerId) return;
+      if (peerId) break;
       await new Promise((resolve) => setTimeout(resolve, 500));
       if (i % 5 === 4) ws.send(JSON.stringify({ type: 'join' }));
     }
@@ -155,7 +154,7 @@ async function startCall() {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = localStream;
 
-    // Start recording and uploading video for DASH
+    // Start recording and uploading video for HLS
     startVideoUpload();
 
     if (isWebRTCSupported) {
@@ -171,8 +170,8 @@ async function startCall() {
         ws.send(JSON.stringify({ type: 'offer', offer, targetId: peerId }));
       }
     } else {
-      statusDiv.textContent = 'WebRTC not supported. Using DASH streaming.';
-      if (remoteDashManifest) initDashPlayer(remoteDashManifest);
+      statusDiv.textContent = 'WebRTC not supported. Using HLS streaming.';
+      if (remoteHlsPlaylist) initHlsPlayer(remoteHlsPlaylist);
     }
 
     startButton.disabled = true;
@@ -180,8 +179,8 @@ async function startCall() {
     statusDiv.textContent = 'Initiating call...';
   } catch (error) {
     console.error('[DEBUG] WebRTC error:', error);
-    statusDiv.textContent = 'WebRTC failed. Falling back to DASH.';
-    if (remoteDashManifest) initDashPlayer(remoteDashManifest);
+    statusDiv.textContent = 'WebRTC failed. Falling back to HLS.';
+    if (remoteHlsPlaylist) initHlsPlayer(remoteHlsPlaylist);
   }
 }
 
@@ -203,14 +202,14 @@ function stopCall() {
     videoRecorder = null;
   }
 
-  if (shakaPlayer) {
-    shakaPlayer.destroy();
-    shakaPlayer = null;
+  if (hls) {
+    hls.destroy();
+    hls = null;
   }
 
   remoteVideo.srcObject = null;
   peerId = null;
-  remoteDashManifest = null;
+  remoteHlsPlaylist = null;
   isNegotiating = false;
 
   startButton.disabled = false;
@@ -220,35 +219,25 @@ function stopCall() {
 
 async function startVideoUpload() {
   if (!localStream) return;
-  console.log('[DEBUG] Starting video upload for DASH');
+  console.log('[DEBUG] Starting video upload for HLS');
   videoRecorder = new MediaRecorder(localStream, {
     mimeType: 'video/webm;codecs=vp8,opus',
     bitsPerSecond: 1000000
   });
 
-  let buffer = [];
-  let isUploading = false;
-
   videoRecorder.ondataavailable = async (event) => {
     if (event.data.size > 0) {
-      buffer.push(event.data);
-      if (buffer.length >= 5 && !isUploading) { // Buffer 5 seconds
-        isUploading = true;
-        try {
-          const blob = new Blob(buffer, { type: 'video/webm' });
-          buffer = [];
-          const response = await fetch(`http://localhost:3000/upload-video/${clientId}`, {
-            method: 'POST',
-            body: blob,
-            headers: { 'Content-Type': 'video/webm' }
-          });
-          if (!response.ok) {
-            console.error('[DEBUG] Video upload failed:', response.status, response.statusText);
-          }
-        } catch (error) {
-          console.error('[DEBUG] Video upload error:', error);
+      try {
+        const response = await fetch(`http://localhost:3000/upload-video/${clientId}`, {
+          method: 'POST',
+          body: event.data,
+          headers: { 'Content-Type': 'video/webm' }
+        });
+        if (!response.ok) {
+          console.error('[DEBUG] Video upload failed:', response.status, response.statusText);
         }
-        isUploading = false;
+      } catch (error) {
+        console.error('[DEBUG] Video upload error:', error);
       }
     }
   };
@@ -257,49 +246,38 @@ async function startVideoUpload() {
     console.log('[DEBUG] Video recording stopped');
   };
 
-  videoRecorder.start(1000); // Generate chunks every 1 second
+  videoRecorder.start(5000); // Generate chunks every 5 seconds
 }
 
-async function initDashPlayer(manifestUri) {
-  console.log('[DEBUG] Initializing DASH player for:', manifestUri);
-  if (typeof shaka === 'undefined') {
-    console.error('[DEBUG] Shaka Player not loaded');
-    statusDiv.textContent = 'DASH fallback failed: Shaka Player not loaded.';
-    return;
-  }
-
-  if (shakaPlayer) {
-    await shakaPlayer.destroy();
-    shakaPlayer = null;
-  }
-
-  shakaPlayer = new shaka.Player();
-  const fullUri = `http://localhost:3000/${manifestUri}`;
-  for (let i = 0; i < 10; i++) {
-    try {
-      const response = await fetch(fullUri, { method: 'HEAD' });
-      console.log(`[DEBUG] Manifest check: ${response.status} ${response.statusText}`);
-      if (response.ok) {
-        await shakaPlayer.attach(remoteVideo);
-        shakaPlayer.configure({
-          streaming: { bufferingGoal: 10, rebufferingGoal: 2, bufferBehind: 30 },
-          manifest: { dash: { ignoreMinBufferTime: true } },
-          preferredVideoCodecs: ['avc1.42001E'],
-          preferredAudioCodecs: ['mp4a.40.2']
-        });
-        console.log('[DEBUG] Attempting to load DASH manifest:', fullUri);
-        await shakaPlayer.load(fullUri);
-        statusDiv.textContent = 'Playing DASH stream.';
-        return;
-      } else {
-        console.log(`[DEBUG] Manifest not ready: ${response.status} ${response.statusText}`);
-      }
-    } catch (error) {
-      console.error('[DEBUG] Manifest check error:', error);
+async function initHlsPlayer(playlistUri) {
+  console.log('[DEBUG] Initializing HLS player for:', playlistUri);
+  const fullUri = `http://localhost:3000/${playlistUri}`;
+  if (Hls.isSupported()) {
+    if (hls) {
+      hls.destroy();
+      hls = null;
     }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    hls = new Hls();
+    hls.loadSource(fullUri);
+    hls.attachMedia(remoteVideo);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      remoteVideo.play();
+      statusDiv.textContent = 'Playing HLS stream.';
+    });
+    hls.on(Hls.Events.ERROR, (event, data) => {
+      console.error('[DEBUG] HLS error:', data);
+      statusDiv.textContent = `HLS playback error: ${data.type}`;
+    });
+  } else if (remoteVideo.canPlayType('application/vnd.apple.mpegurl')) {
+    remoteVideo.src = fullUri;
+    remoteVideo.play().then(() => {
+      statusDiv.textContent = 'Playing HLS stream.';
+    }).catch((error) => {
+      console.error('[DEBUG] HLS playback error:', error);
+      statusDiv.textContent = 'HLS playback failed.';
+    });
+  } else {
+    console.error('[DEBUG] HLS not supported');
+    statusDiv.textContent = 'HLS streaming not supported.';
   }
-
-  console.error('[DEBUG] Failed to load DASH manifest after retries:', fullUri);
-  statusDiv.textContent = 'DASH fallback failed: Manifest not available.';
 }

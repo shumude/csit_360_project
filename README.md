@@ -19,10 +19,10 @@ blonel/
 ├── public/
 │   ├── index.html
 │   ├── client.js
-│   ├── shaka-player.compiled.js
-│   └── dash/
+│   ├── hls.min.js
+│   └── hls/
 │       ├── client-<clientId>
-│       │   ├── output.mpd
-│       │   └── (associated .m4s segments)
+│       │   ├── playlist.m3u8
+│       │   └── (associated .webm segments)
 ├── server.js
 └── package.json

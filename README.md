@@ -1,10 +1,6 @@
 
 # Blonel Two-Way Video Call Webapp
 
-Install FFmpeg on the server:
-* macOS: brew install ffmpeg
-* Linux: sudo apt-get install ffmpeg
-* Windows: Download from [FFmpeg website](https://ffmpeg.org/download.html) and add to PATH.
 
 Install packages and run:
 * npm i
@@ -12,8 +8,21 @@ Install packages and run:
 
 Visit http://localhost:3000 for demo.
 
-
 ## Project Structure
+
+blonel/
+├── public/
+│   ├── index.html
+│   ├── client.js
+│   ├── webrtc.js
+│   ├── client.js
+│   ├── ui.css
+├── app.js
+├── server.js
+└── package.json
+
+
+## Old Project Structure
 
 blonel/
 ├── public/

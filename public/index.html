@@ -2,30 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>WebRTC with HLS Fallback</title>
-  <style>
-    .video-container { display: flex; flex-direction: column; align-items: center; }
-    video { width: 320px; height: 240px; margin: 10px; border: 1px solid black; }
-    #status { color: red; margin-top: 10px; }
-    button { padding: 10px; margin: 10px; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC Video Call</title>
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <h1>Two-Way Video Call</h1>
   <div class="video-container">
-    <div>
+    <div class="video-box">
       <h3>Local Video</h3>
       <video id="localVideo" autoplay muted></video>
     </div>
-    <div>
+    <div class="video-box">
       <h3>Remote Video</h3>
       <video id="remoteVideo" autoplay></video>
     </div>
   </div>
-  <div id="status">Checking WebRTC support...</div>
-  <button id="startButton" onclick="startCall()">Start Call</button>
-  <button id="stopButton" onclick="stopCall()" disabled>Stop Call</button>
-  <script src="hls.min.js"></script>
-  <script src="client.js"></script>
+  <div id="status" class="status info">Checking WebRTC support...</div>
+  <div class="controls">
+    <button id="startButton" onclick="startCall()">Start Call</button>
+    <button id="stopButton" onclick="stopCall()" disabled>Stop Call</button>
+  </div>
+  <script src="./webrtc.js"></script>
+  <script src="./ui.js"></script>
+  <script src="./client.js"></script>
 </body>
 </html>

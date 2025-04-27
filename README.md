@@ -13,11 +13,9 @@ Visit http://localhost:3000 for demo.
 blonel/
 ├── public/
 │   ├── index.html
+│   ├── styles.css
 │   ├── client.js
-│   ├── webrtc.js
-│   ├── client.js
-│   ├── ui.css
-├── app.js
+│   ├── ui.js
 ├── server.js
 └── package.json
 

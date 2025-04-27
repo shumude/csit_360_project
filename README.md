@@ -3,13 +3,14 @@
 
 
 Install packages and run:
-* npm i
-* npm run start
+* ```npm i```
+* ```npm run start```
 
 Visit http://localhost:3000 for demo.
 
 ## Project Structure
 
+```
 blonel/\
 ├── public/\
 │   ├── index.html\
@@ -18,10 +19,12 @@ blonel/\
 │   ├── ui.js\
 ├── server.js\
 └── package.json\
+```
 
 
 ## Old Project Structure
 
+```
 blonel/\
 ├── public/\
 │   ├── index.html\
@@ -33,3 +36,4 @@ blonel/\
 │       │   └── (associated .webm segments)\
 ├── server.js\
 └── package.json
+```

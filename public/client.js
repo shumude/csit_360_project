@@ -220,8 +220,12 @@ function stopCall() {
 async function startVideoUpload() {
   if (!localStream) return;
   console.log('[DEBUG] Starting video upload for HLS');
+  const mimeType = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1.42001E,mp4a.40.2')
+    ? 'video/mp4;codecs=avc1.42001E,mp4a.40.2'
+    : (console.warn('[DEBUG] MP4 not supported, falling back to WebM. HLS may fail.'), 'video/webm;codecs=vp8,opus');
+  console.log(`[DEBUG] Using MediaRecorder mimeType: ${mimeType}`);
   videoRecorder = new MediaRecorder(localStream, {
-    mimeType: 'video/webm;codecs=vp8,opus',
+    mimeType,
     bitsPerSecond: 1000000
   });
 
@@ -231,7 +235,7 @@ async function startVideoUpload() {
         const response = await fetch(`http://localhost:3000/upload-video/${clientId}`, {
           method: 'POST',
           body: event.data,
-          headers: { 'Content-Type': 'video/webm' }
+          headers: { 'Content-Type': mimeType }
         });
         if (!response.ok) {
           console.error('[DEBUG] Video upload failed:', response.status, response.statusText);
@@ -252,28 +256,62 @@ async function startVideoUpload() {
 async function initHlsPlayer(playlistUri) {
   console.log('[DEBUG] Initializing HLS player for:', playlistUri);
   const fullUri = `http://localhost:3000/${playlistUri}`;
+  
+  if (typeof Hls === 'undefined') {
+    console.error('[DEBUG] hls.js not loaded');
+    statusDiv.textContent = 'HLS streaming failed: hls.js not loaded.';
+    if (remoteVideo.canPlayType('application/vnd.apple.mpegurl')) {
+      remoteVideo.src = fullUri;
+      remoteVideo.play().then(() => {
+        statusDiv.textContent = 'Playing HLS stream.';
+      }).catch((error) => {
+        console.error('[DEBUG] Native HLS playback error:', error);
+        statusDiv.textContent = 'HLS playback failed.';
+      });
+    } else {
+      statusDiv.textContent = 'HLS streaming not supported.';
+    }
+    return;
+  }
+
   if (Hls.isSupported()) {
     if (hls) {
       hls.destroy();
       hls = null;
     }
-    hls = new Hls();
+    hls = new Hls({
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+      liveSyncDurationCount: 3,
+      xhrSetup: (xhr) => {
+        xhr.withCredentials = false; // Ensure no credentials are sent
+      }
+    });
     hls.loadSource(fullUri);
     hls.attachMedia(remoteVideo);
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      remoteVideo.play();
+      remoteVideo.play().catch((error) => {
+        console.error('[DEBUG] HLS playback error:', error);
+        statusDiv.textContent = 'HLS playback failed.';
+      });
       statusDiv.textContent = 'Playing HLS stream.';
     });
-    hls.on(Hls.Events.ERROR, (event, data) => {
+    hls.on(Hls.Events.ERROR, async (event, data) => {
       console.error('[DEBUG] HLS error:', data);
-      statusDiv.textContent = `HLS playback error: ${data.type}`;
+      if (data.fatal) {
+        statusDiv.textContent = `HLS playback error: ${data.details}`;
+        hls.destroy();
+        hls = null;
+        // Retry after 5 seconds
+        setTimeout(() => initHlsPlayer(playlistUri), 5000);
+      }
     });
   } else if (remoteVideo.canPlayType('application/vnd.apple.mpegurl')) {
     remoteVideo.src = fullUri;
     remoteVideo.play().then(() => {
       statusDiv.textContent = 'Playing HLS stream.';
     }).catch((error) => {
-      console.error('[DEBUG] HLS playback error:', error);
+      console.error('[DEBUG] Native HLS playback error:', error);
       statusDiv.textContent = 'HLS playback failed.';
     });
   } else {

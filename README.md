@@ -10,26 +10,26 @@ Visit http://localhost:3000 for demo.
 
 ## Project Structure
 
-blonel/
-├── public/
-│   ├── index.html
-│   ├── styles.css
-│   ├── client.js
-│   ├── ui.js
-├── server.js
-└── package.json
+blonel/\
+├── public/\
+│   ├── index.html\
+│   ├── styles.css\
+│   ├── client.js\
+│   ├── ui.js\
+├── server.js\
+└── package.json\
 
 
 ## Old Project Structure
 
-blonel/
-├── public/
-│   ├── index.html
-│   ├── client.js
-│   ├── hls.min.js
-│   └── hls/
-│       ├── client-<clientId>
-│       │   ├── playlist.m3u8
-│       │   └── (associated .webm segments)
-├── server.js
+blonel/\
+├── public/\
+│   ├── index.html\
+│   ├── client.js\
+│   ├── hls.min.js\
+│   └── hls/\
+│       ├── client-<clientId>\
+│       │   ├── playlist.m3u8\
+│       │   └── (associated .webm segments)\
+├── server.js\
 └── package.json

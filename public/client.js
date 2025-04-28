@@ -15,11 +15,12 @@ const servers = {
 let clientId = null;
 let peerId = null;
 let isNegotiating = false;
-const isWebRTCSupported = !!(navigator.mediaDevices && window.RTCPeerConnection);
+// const isWebRTCSupported = !!(navigator.mediaDevices && window.RTCPeerConnection);
+const isWebRTCSupported = true;
 
 // Initialize WebSocket
 function initWebSocket() {
-  ws = new WebSocket('ws://localhost:3000');
+  ws = new WebSocket('wss://localhost:3000');
   ws.onmessage = async (event) => {
     try {
       const message = JSON.parse(event.data);

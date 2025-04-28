@@ -1,11 +1,19 @@
 const express = require('express');
-const http = require('http');
+const https = require('https'); // Changed from http to https
 const WebSocket = require('ws');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs'); // Required to read certificate files
 
 const app = express();
-const server = http.createServer(app);
+
+// Load SSL/TLS certificate and key
+const privateKey = fs.readFileSync(path.join(__dirname, 'certs/key.pem'), 'utf8');
+const certificate = fs.readFileSync(path.join(__dirname, 'certs/cert.pem'), 'utf8');
+const credentials = { key: privateKey, cert: certificate };
+
+// Create HTTPS server
+const server = https.createServer(credentials, app); // Use HTTPS with credentials
 const wss = new WebSocket.Server({ server });
 
 // Serve static files
@@ -56,5 +64,5 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(3000, () => {
-  console.log('Server running on http://localhost:3000');
+  console.log('Server running on https://localhost:3000');
 });
